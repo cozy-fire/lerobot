@@ -248,7 +248,7 @@ class PreTrainedPolicy(nn.Module, HubMixin, abc.ABC):
     def generate_model_card(
         self, dataset_repo_id: str, model_type: str, license: str | None, tags: list[str] | None
     ) -> ModelCard:
-        base_model = "lerobot/smolvla_base" if model_type == "smolvla" else None  # Set a base model
+        base_model = "lerobot/smolvla_base" if model_type in ("smolvla", "smolvla_apt") else None  # Set a base model
 
         card_data = ModelCardData(
             license=license or "apache-2.0",

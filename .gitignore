@@ -15,6 +15,9 @@
 ### Environments & Dependencies ###
 .env
 .venv
+.reasonix
+AGENTS.md
+reasonix.toml
 env/
 venv/
 env.bak/
