@@ -547,8 +547,27 @@ class SmolVLAAptPolicy(PreTrainedPolicy):
             if model_value is not None:
                 model_value.rtc_processor = self.rtc_processor
 
-    def get_optim_params(self) -> dict:
-        return self.parameters()
+    def get_optim_params(self) -> list[dict]:
+        """Return parameter groups with differential LR and weight decay.
+        AE: inherits global optimizer_lr / optimizer_weight_decay.
+        VLM: uses vlm_optimizer_lr / vlm_optimizer_weight_decay."""
+        vlm_params, ae_params = [], []
+        for name, param in self.named_parameters():
+            if not param.requires_grad:
+                continue
+            if name.startswith("model.vlm_with_expert."):
+                vlm_params.append(param)
+            else:
+                ae_params.append(param)
+        groups = [{"params": ae_params, "name": "ae"}]
+        if vlm_params:
+            groups.append({
+                "params": vlm_params,
+                "lr": self.config.vlm_optimizer_lr,
+                "weight_decay": self.config.vlm_optimizer_weight_decay,
+                "name": "vlm",
+            })
+        return groups
 
     def _get_action_chunk(
         self, batch: dict[str, Tensor], noise: Tensor | None = None, **kwargs: Unpack[ActionSelectKwargs]
@@ -654,21 +673,21 @@ class SmolVLAAptPolicy(PreTrainedPolicy):
         lang_tokens = batch[f"{OBS_LANGUAGE_TOKENS}"]
         lang_masks = batch[f"{OBS_LANGUAGE_ATTENTION_MASK}"]
         actions = self.prepare_action(batch)
-        actions_is_pad = batch.get("actions_id_pad")
+        actions_is_pad = batch.get("actions_is_pad")
         loss_dict = {}
         losses = self.model.forward(
             images, img_masks, lang_tokens, lang_masks, state, actions, noise=noise, time=time
         )
-        loss_dict["losses_after_forward"] = losses.clone()
+        loss_dict["losses_after_forward"] = losses.mean().item()
 
         if actions_is_pad is not None:
             in_episode_bound = ~actions_is_pad
             losses = losses * in_episode_bound.unsqueeze(-1)
-            loss_dict["losses_after_in_ep_bound"] = losses.clone()
+            loss_dict["losses_after_in_ep_bound"] = losses.mean().item()
 
         # Remove padding
         losses = losses[:, :, : self.config.max_action_dim]
-        loss_dict["losses_after_rm_padding"] = losses.clone()
+        loss_dict["losses_after_rm_padding"] = losses.mean().item()
 
         if reduction == "none":
             # Return per-sample losses (B,) by averaging over time and action dims
@@ -697,7 +716,8 @@ class SmolVLAAptPolicy(PreTrainedPolicy):
 
         if not any(key in batch for key in image_keys):
             raise ValueError(
-                f"All image features are missing from the batch. At least one expected. (batch: {batch.keys()}) (image_features:{self.config.image_features})"
+                f"No image features found in batch for any expected camera. "
+                f"(batch keys: {list(batch.keys())}) (expected: {image_keys})"
             )
 
         bsize = batch["observation.state"].shape[0]

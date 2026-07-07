@@ -393,24 +393,15 @@ class TestPrepareImagesErrors:
             # "observation.images.top" intentionally absent
         }
 
-        with pytest.raises(ValueError, match="image features are missing"):
+        with pytest.raises(ValueError, match="No image features"):
             SmolVLAAptPolicy.prepare_images(policy, batch)
 
-    def test_empty_image_features(self, device):
-        """Config with zero visual features → empty image_keys list.
-        Still raises because any() over empty list is False."""
-        cfg = SmolVLAAptConfig()
-        cfg.input_features = {
-            "observation.state": PolicyFeature(type=FeatureType.ENV, shape=(16,))
-        }
-        cfg.output_features = {
-            "action": PolicyFeature(type=FeatureType.ACTION, shape=(16,))
-        }
-        cfg.resize_imgs_with_padding = (64, 64)
-        policy = _MockPolicy(cfg)
+    def test_no_image_key_in_batch_raises(self, cfg_single, device):
+        """Config expects cameras but batch has none → ValueError."""
+        policy = _MockPolicy(cfg_single)
         batch = {"observation.state": torch.randn(2, 16, device=device)}
 
-        with pytest.raises(ValueError, match="image features are missing"):
+        with pytest.raises(ValueError, match="No image features"):
             SmolVLAAptPolicy.prepare_images(policy, batch)
 
     def test_missing_camera_with_no_present_raises_first(self, cfg_single, device):
