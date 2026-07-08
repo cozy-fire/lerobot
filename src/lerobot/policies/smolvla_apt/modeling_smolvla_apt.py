@@ -519,10 +519,16 @@ class SmolVLAAptPolicy(PreTrainedPolicy):
                     f"[SmolVLA-APT] load_stage_0_path is set but model.safetensors not found at: {ckpt_path}"
                 )
         elif config.train_stage == 1 and config.load_stage_0_path is None:
-            logging.info(
-                "[SmolVLA-APT] train_stage=1 but load_stage_0_path not set. "
-                "All Stage 1 layers will be randomly initialized."
-            )
+            if getattr(config, "pretrained_path", None):
+                logging.info(
+                    "[SmolVLA-APT] train_stage=1, load_stage_0_path not set. "
+                    "Weights will be loaded from pretrained_path checkpoint."
+                )
+            else:
+                logging.info(
+                    "[SmolVLA-APT] train_stage=1 but load_stage_0_path not set. "
+                    "All Stage 1 layers will be randomly initialized."
+                )
         self.reset()
 
     def reset(self):
