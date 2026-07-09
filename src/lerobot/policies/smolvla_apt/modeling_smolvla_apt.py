@@ -318,6 +318,10 @@ class AttentionBlock(nn.Module):
 
         # Mask: (B, L, L) → (B, 1, L, L) for head broadcasting
         mask_sdpa = attention_mask.unsqueeze(1)
+        # Prevent NaN from fully-masked rows (e.g. language tokens in dilated_mask)
+        fully_masked = ~mask_sdpa.any(dim=-1)                     # (B, 1, L): rows with no attendable cols
+        diag = torch.eye(L, dtype=torch.bool, device=x.device)[None, None, :, :]  # (1, 1, L, L)
+        mask_sdpa = mask_sdpa | (fully_masked.unsqueeze(-1) & diag)  # add self-loop for fully-masked rows
 
         attn_out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask_sdpa)
         attn_out = attn_out.transpose(1, 2).reshape(B, L, D)
@@ -404,6 +408,16 @@ class HybridAttentionLayers(nn.Module):
             if j < len(vl_highways) and vl_highways[j] is not None:
                 len_vl, len_rest = vla_split_sizes
                 vl, rest = x.split([len_vl, len_rest], dim=1)
+                if torch.isnan(vl).any():
+                    nan_positions = torch.isnan(vl).any(dim=-1)  # (B, L_vl) — which tokens have NaN
+                    nan_counts = nan_positions.sum(dim=1)        # (B,) — per-sample NaN count
+                    raise AssertionError(
+                        f"layer {i}: vl NaN before gate_fusion[{j}]. "
+                        f"NaN tokens per sample: {nan_counts.tolist()}, "
+                        f"vl shape={vl.shape}, vl min={vl[~vl.isnan()].min():.2f}, max={vl[~vl.isnan()].max():.2f}"
+                    )
+                if torch.isnan(vl_highways[j]).any():
+                    raise AssertionError(f"layer {i}: vl_highway[{j}] NaN before gate_fusion")
                 vl = self.gate_fusion(vl, vl_highways[j], j)
                 x = torch.cat([vl, rest], dim=1)
 

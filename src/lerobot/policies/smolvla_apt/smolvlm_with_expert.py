@@ -114,6 +114,8 @@ class SmolVLMWithExpertModel(nn.Module):
             for params in self.vlm.parameters():
                 params.requires_grad = False
         else:
+            # Keep VLM in eval mode — gradients still flow, but dropout disabled (avoids NaN)
+            self.vlm.eval()
             last_layers = [self.num_vlm_layers - 1]
             frozen_layers = [
                 "lm_head",
@@ -131,8 +133,8 @@ class SmolVLMWithExpertModel(nn.Module):
         if self.freeze_vision_encoder:
             self.get_vlm_model().vision_model.eval()
 
-        if self.train_expert_only:
-            self.vlm.eval()
+        # Always keep VLM in eval mode — gradients flow, but dropout/SDPA-backend stay safe
+        self.vlm.eval()
 
     def embed_image(self, image: torch.Tensor):
         patch_attention_mask = None
